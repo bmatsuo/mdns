@@ -1,0 +1,8 @@
+package: github.com/bmatsuo/mdns
+import:
+- package: golang.org/x/net
+  ref: 2e9cee70ee697e0a2ef894b560dda50dec7dff58
+  subpackages:
+  - ipv4
+  - ipv6
+- package: github.com/miekg/dns

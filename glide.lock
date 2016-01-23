@@ -1,0 +1,17 @@
+hash: 1f5eaed4304c010dc2f7ed4b5905c7576382a7247964a265c3a18a66147b91d4
+updated: 2016-01-23T05:54:12.088475613-08:00
+imports:
+- name: github.com/miekg/dns
+  version: 5c01f20c3a6b2acb2b5222c0aa9732a2f219b4b3
+- name: golang.org/x/crypto
+  version: 3760e016850398b85094c4c99e955b8c3dea5711
+  repo: https://golang.org/x/crypto
+- name: golang.org/x/net
+  version: 2e9cee70ee697e0a2ef894b560dda50dec7dff58
+  subpackages:
+  - ipv4
+  - ipv6
+- name: golang.org/x/text
+  version: cf4986612c83df6c55578ba198316d1684a9a287
+  repo: https://golang.org/x/text
+devImports: []
