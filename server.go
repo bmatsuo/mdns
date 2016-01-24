@@ -39,8 +39,8 @@ type Config struct {
 	Iface *net.Interface
 }
 
-// mDNS server is used to listen for mDNS queries and respond if we
-// have a matching local record
+// Server is an mDNS server is used to listen for mDNS queries and respond if
+// we have a matching local record
 type Server struct {
 	config *Config
 
@@ -221,7 +221,7 @@ func (s *Server) handleQuery(query *dns.Msg, from net.Addr) error {
 		for i, q := range query.Question {
 			questions[i] = q.Name
 		}
-		log.Printf("no responses for query with questions: %s", strings.Join(questions, ", "))
+		log.Printf("[DEBUG] no responses for query with questions: %s", strings.Join(questions, ", "))
 	}
 
 	if mresp := resp(false); mresp != nil {
@@ -278,9 +278,8 @@ func (s *Server) sendResponse(resp *dns.Msg, from net.Addr, unicast bool) error 
 	addr := from.(*net.UDPAddr)
 	if addr.IP.To4() != nil {
 		_, err = s.ipv4List.WriteToUDP(buf, addr)
-		return err
 	} else {
 		_, err = s.ipv6List.WriteToUDP(buf, addr)
-		return err
 	}
+	return err
 }

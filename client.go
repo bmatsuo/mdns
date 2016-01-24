@@ -111,30 +111,24 @@ type client struct {
 // for records
 func newClient() (*client, error) {
 	// TODO(reddaly): At least attempt to bind to the port required in the spec.
-	// Create a IPv4 listener
-	uconn4, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to udp4 port: %v", err)
-	}
-	uconn6, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
-	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to udp6 port: %v", err)
-	}
-
+	uconn4, mconn4 := listen("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0}, ipv4Addr)
+	uconn6, mconn6 := listen("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0}, ipv6Addr)
 	if uconn4 == nil && uconn6 == nil {
+		if mconn4 != nil {
+			mconn4.Close()
+		}
+		if mconn6 != nil {
+			mconn6.Close()
+		}
 		return nil, fmt.Errorf("failed to bind to any unicast udp port")
 	}
-
-	mconn4, err := net.ListenMulticastUDP("udp4", nil, ipv4Addr)
-	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to udp4 port: %v", err)
-	}
-	mconn6, err := net.ListenMulticastUDP("udp6", nil, ipv6Addr)
-	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to udp6 port: %v", err)
-	}
-
 	if mconn4 == nil && mconn6 == nil {
+		if uconn4 != nil {
+			uconn4.Close()
+		}
+		if uconn6 != nil {
+			uconn6.Close()
+		}
 		return nil, fmt.Errorf("failed to bind to any multicast udp port")
 	}
 
@@ -145,7 +139,22 @@ func newClient() (*client, error) {
 		ipv6UnicastConn:   uconn6,
 		closedCh:          make(chan struct{}),
 	}
+
 	return c, nil
+}
+
+func listen(netname string, addr *net.UDPAddr, laddr *net.UDPAddr) (uconn, mconn *net.UDPConn) {
+	uconn, err := net.ListenUDP(netname, addr)
+	if err != nil {
+		log.Printf("[ERR] mdns: Failed to bind to %s port: %v", netname, err)
+		uconn = nil
+	}
+	mconn, err = net.ListenMulticastUDP(netname, nil, laddr)
+	if err != nil {
+		log.Printf("[ERR] mdns: Failed to bind to %s port: %v", netname, err)
+		uconn = nil
+	}
+	return uconn, mconn
 }
 
 // Close is used to cleanup the client
@@ -234,13 +243,15 @@ func (c *client) query(params *QueryParam) error {
 	// Listen until we reach the timeout
 	finish := time.After(params.Timeout)
 	for {
+		skip := false
 		select {
 		case resp := <-msgCh:
 			var inp *ServiceEntry
 			for _, answer := range append(resp.Answer, resp.Extra...) {
-				// TODO(reddaly): Check that response corresponds to serviceAddr?
 				switch rr := answer.(type) {
 				case *dns.PTR:
+					log.Printf("[DEBUG] PTR %v", rr.Ptr)
+
 					// Create new entry for this
 					inp = ensureName(inprogress, rr.Ptr)
 
@@ -250,12 +261,21 @@ func (c *client) query(params *QueryParam) error {
 						alias(inprogress, rr.Hdr.Name, rr.Target)
 					}
 
+					if !strings.HasSuffix(rr.Hdr.Name, serviceAddr) {
+						skip = true
+						log.Printf("[DEBUG] SRV (SKIP) %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
+					} else {
+						log.Printf("[DEBUG] SRV %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
+					}
+
 					// Get the port
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Host = rr.Target
 					inp.Port = int(rr.Port)
 
 				case *dns.TXT:
+					log.Printf("[DEBUG] TXT %v", rr.Txt)
+
 					// Pull out the txt
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Info = strings.Join(rr.Txt, "|")
@@ -263,12 +283,14 @@ func (c *client) query(params *QueryParam) error {
 					inp.hasTXT = true
 
 				case *dns.A:
+					log.Printf("[DEBUG] A %v", rr.A)
 					// Pull out the IP
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Addr = rr.A // @Deprecated
 					inp.AddrV4 = rr.A
 
 				case *dns.AAAA:
+					log.Printf("[DEBUG] AAAA %v", rr.AAAA)
 					// Pull out the IP
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Addr = rr.AAAA // @Deprecated
@@ -277,6 +299,9 @@ func (c *client) query(params *QueryParam) error {
 			}
 
 			if inp == nil {
+				continue
+			}
+			if skip {
 				continue
 			}
 
