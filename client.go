@@ -42,6 +42,7 @@ type QueryParam struct {
 	Interface           *net.Interface       // Multicast interface to use
 	Entries             chan<- *ServiceEntry // Entries Channel
 	WantUnicastResponse bool                 // Unicast response desired, as per 5.4 in RFC
+	Debug               bool                 // print debugging log messages
 }
 
 // DefaultParams is used to return a default set of QueryParam's
@@ -146,12 +147,12 @@ func newClient() (*client, error) {
 func listen(netname string, addr *net.UDPAddr, laddr *net.UDPAddr) (uconn, mconn *net.UDPConn) {
 	uconn, err := net.ListenUDP(netname, addr)
 	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to %s port: %v", netname, err)
+		log.Printf("[WARN] mdns: Failed to bind to %s port: %v", netname, err)
 		uconn = nil
 	}
 	mconn, err = net.ListenMulticastUDP(netname, nil, laddr)
 	if err != nil {
-		log.Printf("[ERR] mdns: Failed to bind to %s port: %v", netname, err)
+		log.Printf("[WARN] mdns: Failed to bind to %s port: %v", netname, err)
 		uconn = nil
 	}
 	return uconn, mconn
@@ -250,22 +251,29 @@ func (c *client) query(params *QueryParam) error {
 			for _, answer := range append(resp.Answer, resp.Extra...) {
 				switch rr := answer.(type) {
 				case *dns.PTR:
-					log.Printf("[DEBUG] PTR %v", rr.Ptr)
+					if params.Debug {
+						log.Printf("[DEBUG] PTR %v", rr.Ptr)
+					}
 
 					// Create new entry for this
 					inp = ensureName(inprogress, rr.Ptr)
 
 				case *dns.SRV:
+					// Check if the entry needs to be skipped after being read
+					if !strings.HasSuffix(rr.Hdr.Name, serviceAddr) {
+						skip = true
+						if params.Debug {
+							log.Printf("[DEBUG] SRV (SKIP) %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
+						}
+					} else {
+						if params.Debug {
+							log.Printf("[DEBUG] SRV %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
+						}
+					}
+
 					// Check for a target mismatch
 					if rr.Target != rr.Hdr.Name {
 						alias(inprogress, rr.Hdr.Name, rr.Target)
-					}
-
-					if !strings.HasSuffix(rr.Hdr.Name, serviceAddr) {
-						skip = true
-						log.Printf("[DEBUG] SRV (SKIP) %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
-					} else {
-						log.Printf("[DEBUG] SRV %s %v %d", rr.Hdr.Name, rr.Target, rr.Port)
 					}
 
 					// Get the port
@@ -274,7 +282,9 @@ func (c *client) query(params *QueryParam) error {
 					inp.Port = int(rr.Port)
 
 				case *dns.TXT:
-					log.Printf("[DEBUG] TXT %v", rr.Txt)
+					if params.Debug {
+						log.Printf("[DEBUG] TXT %v", rr.Txt)
+					}
 
 					// Pull out the txt
 					inp = ensureName(inprogress, rr.Hdr.Name)
@@ -283,14 +293,20 @@ func (c *client) query(params *QueryParam) error {
 					inp.hasTXT = true
 
 				case *dns.A:
-					log.Printf("[DEBUG] A %v", rr.A)
+					if params.Debug {
+						log.Printf("[DEBUG] A %v", rr.A)
+					}
+
 					// Pull out the IP
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Addr = rr.A // @Deprecated
 					inp.AddrV4 = rr.A
 
 				case *dns.AAAA:
-					log.Printf("[DEBUG] AAAA %v", rr.AAAA)
+					if params.Debug {
+						log.Printf("[DEBUG] AAAA %v", rr.AAAA)
+					}
+
 					// Pull out the IP
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Addr = rr.AAAA // @Deprecated
@@ -325,6 +341,9 @@ func (c *client) query(params *QueryParam) error {
 				}
 			}
 		case <-finish:
+			if params.Debug {
+				log.Printf("[DEBUG] Finish")
+			}
 			return nil
 		}
 	}

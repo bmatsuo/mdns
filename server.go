@@ -37,6 +37,8 @@ type Config struct {
 	// interface. If not provided, the system default multicase interface
 	// is used.
 	Iface *net.Interface
+
+	Debug bool
 }
 
 // Server is an mDNS server is used to listen for mDNS queries and respond if
@@ -221,7 +223,9 @@ func (s *Server) handleQuery(query *dns.Msg, from net.Addr) error {
 		for i, q := range query.Question {
 			questions[i] = q.Name
 		}
-		log.Printf("[DEBUG] no responses for query with questions: %s", strings.Join(questions, ", "))
+		if s.config.Debug {
+			log.Printf("[DEBUG] no responses for query with questions: %s", strings.Join(questions, ", "))
+		}
 	}
 
 	if mresp := resp(false); mresp != nil {
